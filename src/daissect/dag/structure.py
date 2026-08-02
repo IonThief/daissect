@@ -151,7 +151,7 @@ class Topology:
             for s in target_node.successors:
                 succ_node = self.nodes[s]
                 succ_node.predecessors = tuple(
-                    node.name if a == target else a for a in succ_node.predecessors
+                    node.name if a == target else p for p in succ_node.predecessors
                 )
 
             target_node.successors = [node.name]
@@ -161,8 +161,8 @@ class Topology:
             node.predecessors = tuple(target_node.predecessors)
             node.successors = [target]
 
-            for a in target_node.predecessors:
-                arg_node = self.nodes[a]
+            for p in target_node.predecessors:
+                arg_node = self.nodes[p]
                 arg_node.successors = [
                     node.name if u == target else u for u in arg_node.successors
                 ]
@@ -170,5 +170,59 @@ class Topology:
             target_node.predecessors = (node.name,)
         else:
             raise ValueError(
-                f"Invalid insertion strategy: '{loc}'. Expected 'before' or 'after'."
+                f"Invalid insertion strategy: '{loc}'." "Expected 'before' or 'after'."
             )
+
+    def remove(self, target: str) -> None:
+        """
+        Removes a node and bridges its predecessors directly to its successors.
+
+        Parameters:
+            target (str): The name of the node to remove from the graph.
+
+        - Topology.remove
+
+            [ ORIGINAL ]
+
+                  +---------------+      +--------+     +---------------+
+                  |   Pred Node   |----->| TARGET |---->|   Succ Node   |
+                  |succ=["Target"]|      |        |     | pred=["Target"]
+                  +---------------+      +--------+     +---------------+
+
+
+            [ MODIFIED ]
+
+                  +---------------+                     +---------------+
+                  |   Pred Node   |-------------------->|   Succ Node   |
+                  | succ=["Succ"] |                     |  pred=["Pred"]|
+                  +---------------+                     +---------------+
+                                         +--------+
+                                         | TARGET |
+                                         | (Del)  |
+                                         +--------+
+
+        """
+        if target not in self.nodes:
+            raise ValueError(f"Target node '{target}' not found.")
+
+        target_node = self.nodes[target]
+
+        # Bridge predecessors to point to successors
+        for p in target_node.predecessors:
+            arg_node = self.nodes[p]
+            arg_node.successors = [
+                u for u in arg_node.successors if u != target
+            ] + target_node.successors
+
+        # Bridge successors to point to predecessors
+        for s in target_node.successors:
+            succ_node = self.nodes[s]
+            new_args = []
+            for arg in succ_node.predecessors:
+                if arg == target:
+                    new_args.extend(target_node.predecessors)
+                else:
+                    new_args.append(arg)
+            succ_node.predecessors = tuple(new_args)
+
+        del self.nodes[target]
