@@ -321,3 +321,56 @@ class Topology:
 
         self.nodes[branch_node.name] = branch_node
         self.nodes[merge_node.name] = merge_node
+
+    def sort(self) -> List[str]:
+        """
+        Topologically sort using Kahn's algorithm.
+
+        Returns:
+            List[str]: A sequence of node names ordered such that for every
+                       directed edge u -> v, node u comes before v.
+
+        Raises:
+            RuntimeError: If the graph contains a cycle.
+
+        - Topology.sort
+
+            [ Queue ] -> Pops Node with 0 incoming edges (In-Degree = 0)
+               |
+               v
+            Adds to sorted_nodes -> Decrements In-Degree of successors
+               |
+               v
+            Cycle Detected if (len(sorted_nodes) != len(nodes))
+        """
+        in_degree = {
+            name: len(set(node.predecessors)) for name, node in self.nodes.items()
+        }
+        queue = [name for name, deg in in_degree.items() if deg == 0]
+        sorted_nodes = []
+
+        while queue:
+            current = queue.pop(0)
+            sorted_nodes.append(current)
+            for user in self.nodes[current].successors:
+                in_degree[user] -= 1
+                if in_degree[user] == 0:
+                    queue.append(user)
+
+        if len(sorted_nodes) != len(self.nodes):
+            raise RuntimeError("Cycle detected in topology.")
+
+        return sorted_nodes
+
+    def has_cycles(self) -> bool:
+        """
+        Verifies if the graph structure constitutes a valid Directed Acyclic Graph (DAG).
+
+        Returns:
+            bool: True if at least one cycle exists (invalid DAG), False otherwise.
+        """
+        try:
+            self.sort()
+            return False
+        except RuntimeError:
+            return True
