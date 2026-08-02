@@ -193,7 +193,7 @@ class Topology:
             arg_node = self.nodes[intercept_edge]
             arg_node.successors = list(
                 dict.fromkeys(
-                    node.name if u == target else u for u in arg_node.successors
+                    node.name if s == target else s for s in arg_node.successors
                 )
             )
 
@@ -240,9 +240,10 @@ class Topology:
         # Bridge predecessors to point to successors
         for p in target_node.predecessors:
             arg_node = self.nodes[p]
-            arg_node.successors = [
-                u for u in arg_node.successors if u != target
+            raw_successors = [
+                s for s in arg_node.successors if s != target
             ] + target_node.successors
+            arg_node.successors = list(dict.fromkeys(raw_successors))
 
         # Bridge successors to point to predecessors
         for s in target_node.successors:
