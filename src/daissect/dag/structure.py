@@ -87,12 +87,22 @@ class Topology:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
 
-    def insert(self, target: str, node: Node, loc: str) -> None:
+    def insert(
+        self,
+        target: str,
+        node: Node,
+        loc: str,
+        intercept_edge: str = None,
+    ) -> None:
         """
+        Inserts a node into the graph relative to a target node.
+
         Parameters:
             target (str): The name of the existing node to anchor the insertion.
             node (Node): The new Node instance to insert into the graph.
             loc (str): Insertion strategy; either "before" or "after" the target.
+            intercept_edge (str, optional): When loc="before", specifies exactly which incoming
+                                            edge to intercept. Required if target has multiple inputs.
 
 
         - Topology.insert(loc="after")
@@ -151,26 +161,46 @@ class Topology:
             for s in target_node.successors:
                 succ_node = self.nodes[s]
                 succ_node.predecessors = tuple(
-                    node.name if a == target else p for p in succ_node.predecessors
+                    node.name if p == target else p for p in succ_node.predecessors
                 )
 
             target_node.successors = [node.name]
 
         elif loc == "before":
-            # Node inherits target's predecessors, and Node points only to target
-            node.predecessors = tuple(target_node.predecessors)
+            if intercept_edge is None:
+                if len(target_node.predecessors) == 1:
+                    intercept_edge = target_node.predecessors[0]
+                elif len(target_node.predecessors) > 1:
+                    raise ValueError(
+                        f"Target node '{target}' has multiple predecessors {target_node.predecessors}. "
+                        "You must explicitly specify 'intercept_edge'."
+                    )
+                else:
+                    raise ValueError(
+                        f"Target node '{target}' has no predecessors to intercept."
+                    )
+
+            if intercept_edge not in target_node.predecessors:
+                raise ValueError(
+                    f"'{intercept_edge}' is not a valid predecessor of '{target}'."
+                )
+
+            # Node inherits ONLY the intercepted edge
+            node.predecessors = (intercept_edge,)
             node.successors = [target]
 
-            for p in target_node.predecessors:
-                arg_node = self.nodes[p]
-                arg_node.successors = [
+            # Update the specific predecessor to point to the new node
+            arg_node = self.nodes[intercept_edge]
+            arg_node.successors = list(
+                dict.fromkeys(
                     node.name if u == target else u for u in arg_node.successors
-                ]
+                )
+            )
 
-            target_node.predecessors = (node.name,)
-        else:
-            raise ValueError(
-                f"Invalid insertion strategy: '{loc}'." "Expected 'before' or 'after'."
+            # Update target to take the new node in place of the specific intercepted edge
+            target_node.predecessors = tuple(
+                node.name if p == intercept_edge else p
+                for p in target_node.predecessors
             )
 
     def remove(self, target: str) -> None:
