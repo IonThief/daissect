@@ -258,7 +258,13 @@ class Topology:
 
         del self.nodes[target]
 
-    def branch(self, target: str, branch_node: Node, merge_node: Node) -> None:
+    def branch(
+        self,
+        target: str,
+        branch_node: Node,
+        merge_node: Node,
+        target_is_first_arg: bool = True,
+    ) -> None:
         """
         Creates a parallel branch from target and merges it back.
 
@@ -266,6 +272,8 @@ class Topology:
             target (str): The name of the node where the branch begins.
             branch_node (Node): The new node executing in parallel with the main flow.
             merge_node (Node): The new node responsible for combining the main flow and branch.
+            target_is_first_arg (bool): Defines execution order. If True -> merge(target, branch).
+                                        If False -> merge(branch, target).
 
         - Topology.branch
 
@@ -294,8 +302,11 @@ class Topology:
         branch_node.predecessors = (target,)
         branch_node.successors = [merge_node.name]
 
-        # Merge node connects from target and branch, outputs to original users
-        merge_node.predecessors = (target, branch_node.name)
+        if target_is_first_arg:
+            merge_node.predecessors = (target, branch_node.name)
+        else:
+            merge_node.predecessors = (branch_node.name, target)
+
         merge_node.successors = original_successors
 
         # Update original users to receive input from merge node instead of target
