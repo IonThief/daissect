@@ -226,3 +226,56 @@ class Topology:
             succ_node.predecessors = tuple(new_args)
 
         del self.nodes[target]
+
+    def branch(self, target: str, branch_node: Node, merge_node: Node) -> None:
+        """
+        Creates a parallel branch from target and merges it back.
+
+        Parameters:
+            target (str): The name of the node where the branch begins.
+            branch_node (Node): The new node executing in parallel with the main flow.
+            merge_node (Node): The new node responsible for combining the main flow and branch.
+
+        - Topology.branch
+
+            [ ORIGINAL ]
+                  +---------------+                     +---------------+
+                  |  Target Node  |-------------------->| Original Succ |
+                  +---------------+                     +---------------+
+
+            [ MODIFIED ]
+                                    +---------------+
+                               +--->|  Branch Node  |---+
+                               |    +---------------+   |
+                  +------------+--+                     v   +---------------+
+                  |  Target Node  |------------------------>|  Merge Node   |---> Original Succ
+                  +---------------+                         +---------------+
+        """
+        if target not in self.nodes:
+            raise ValueError(f"Target node '{target}' not found.")
+        if branch_node.name in self.nodes or merge_node.name in self.nodes:
+            raise ValueError("Branch or merge node already exists.")
+
+        target_node = self.nodes[target]
+        original_successors = list(target_node.successors)
+
+        # Branch node connects from target to merge
+        branch_node.predecessors = (target,)
+        branch_node.successors = [merge_node.name]
+
+        # Merge node connects from target and branch, outputs to original users
+        merge_node.predecessors = (target, branch_node.name)
+        merge_node.successors = original_successors
+
+        # Update original users to receive input from merge node instead of target
+        for s in original_successors:
+            succ_node = self.nodes[s]
+            succ_node.predecessors = tuple(
+                merge_node.name if p == target else p for p in succ_node.predecessors
+            )
+
+        # Update target to output to both branch and merge
+        target_node.successors = [branch_node.name, merge_node.name]
+
+        self.nodes[branch_node.name] = branch_node
+        self.nodes[merge_node.name] = merge_node
