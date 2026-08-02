@@ -86,3 +86,89 @@ class Node:
 class Topology:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
+
+    def insert(self, target: str, node: Node, loc: str) -> None:
+        """
+        Parameters:
+            target (str): The name of the existing node to anchor the insertion.
+            node (Node): The new Node instance to insert into the graph.
+            loc (str): Insertion strategy; either "before" or "after" the target.
+
+
+        - Topology.insert(loc="after")
+
+            [ ORIGINAL ]
+
+                  +---------------+                     +---------------+
+                  |  Target Node  |-------------------->|   Succ Node   |
+                  |succ=["Succ"]  |                     |pred=["Target"]|
+                  +---------------+                     +---------------+
+
+            [ MODIFIED ]
+
+                  +---------------+      +--------+     +---------------+
+                  |  Target Node  |----->|NEW NODE|---->|   Succ Node   |
+                  | succ=["NEW"]  |      |        |     | pred=["NEW"]  |
+                  +---------------+      +--------+     +---------------+
+                                         pred=["Target"]
+                                         succ=["Succ"]
+
+
+        - Topology.insert(loc="before")
+
+            [ ORIGINAL ]
+
+                  +---------------+                     +---------------+
+                  |   Pred Node   |-------------------->|  Target Node  |
+                  |succ=["Target"]|                     | pred=["Pred"] |
+                  +---------------+                     +---------------+
+
+            [ MODIFIED ]
+
+                  +---------------+      +--------+     +---------------+
+                  |   Pred Node   |----->|NEW NODE|---->|  Target Node  |
+                  | succ=["NEW"]  |      |        |     | pred=["NEW"]  |
+                  +---------------+      +--------+     +---------------+
+                                         pred=["Pred"]
+                                         succ=["Target"]
+
+        """
+        if target not in self.nodes:
+            raise ValueError(f"Target node '{target}' not found.")
+        if node.name in self.nodes:
+            raise ValueError(f"Node '{node.name}' already exists.")
+        if loc not in ("before", "after"):
+            raise ValueError("loc must be 'before' or 'after'.")
+
+        self.nodes[node.name] = node
+        target_node = self.nodes[target]
+
+        if loc == "after":
+            # Node inherits target's successors, and target points only to Node
+            node.predecessors = (target,)
+            node.successors = list(target_node.successors)
+
+            for s in target_node.successors:
+                succ_node = self.nodes[s]
+                succ_node.predecessors = tuple(
+                    node.name if a == target else a for a in succ_node.predecessors
+                )
+
+            target_node.successors = [node.name]
+
+        elif loc == "before":
+            # Node inherits target's predecessors, and Node points only to target
+            node.predecessors = tuple(target_node.predecessors)
+            node.successors = [target]
+
+            for a in target_node.predecessors:
+                arg_node = self.nodes[a]
+                arg_node.successors = [
+                    node.name if u == target else u for u in arg_node.successors
+                ]
+
+            target_node.predecessors = (node.name,)
+        else:
+            raise ValueError(
+                f"Invalid insertion strategy: '{loc}'. Expected 'before' or 'after'."
+            )
