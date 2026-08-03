@@ -1,9 +1,25 @@
 import copy
-from typing import Any, Dict
+from functools import wraps
+from typing import Any, Callable, Dict
 
 from torch import nn
 
 from .structure import Topology
+
+
+def require_mutable(func: Callable) -> Callable:
+    """Decorator to enforce that the DAG is unlocked before mutation."""
+
+    @wraps(func)
+    def wrapper(self, *args: Any, **kwargs: Any) -> Any:
+        if self._is_locked:
+            raise RuntimeError(
+                f"Cannot call '{func.__name__}': DAG is locked. "
+                "Mutations must occur inside a 'with dag:' block."
+            )
+        return func(self, *args, **kwargs)
+
+    return wrapper
 
 
 class DAG:
@@ -39,10 +55,3 @@ class DAG:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Automatically locks the graph upon exiting the context block"""
         self.lock()
-
-    def _require_mutable(self) -> None:
-        """Fails if a mutation is attempted outside a with-block"""
-        if self._is_locked:
-            raise RuntimeError(
-                "DAG is locked. Mutations must occur inside a 'with dag:' block"
-            )
