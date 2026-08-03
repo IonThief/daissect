@@ -109,3 +109,16 @@ class DAG:
             del self._module_pool[target]
 
         return self
+
+    @require_mutable
+    def replace(self, target: str, module: nn.Module) -> "DAG":
+        """Replaces an existing module in the graph"""
+        if target not in self._topology.nodes:
+            raise ValueError(f"Target node '{target}' not found in topology.")
+
+        self._module_pool[target] = module
+        node = self._topology.nodes[target]
+        node.type = OpType.CALL_MODULE
+        node.operator = target
+
+        return self
