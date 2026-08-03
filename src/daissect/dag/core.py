@@ -100,3 +100,12 @@ class DAG:
         self._module_pool[name] = module
 
         return self
+
+    @require_mutable
+    def remove(self, target: str) -> "DAG":
+        """Removes a module from the graph and bridges its connections"""
+        self._topology.remove(target)
+        if target in self._module_pool:
+            del self._module_pool[target]
+
+        return self
