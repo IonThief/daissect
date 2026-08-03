@@ -122,3 +122,20 @@ class DAG:
         node.operator = target
 
         return self
+
+    @require_mutable
+    def wrap(self, target: str, wrapper_cls: Type[nn.Module], **kwargs: Any) -> "DAG":
+        """
+        Wraps an existing module with a custom wrapper class
+        NOTE: The wrapper_cls must accept the original module as its first argument
+        """
+        if target not in self._module_pool:
+            raise ValueError(
+                f"Target '{target}' has no module to wrap (might be a placeholder/output)."
+            )
+
+        original_module = self._module_pool[target]
+        wrapped_module = wrapper_cls(original_module, **kwargs)
+        self._module_pool[target] = wrapped_module
+
+        return self
