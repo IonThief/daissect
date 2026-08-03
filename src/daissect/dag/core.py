@@ -39,3 +39,10 @@ class DAG:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Automatically locks the graph upon exiting the context block"""
         self.lock()
+
+    def _require_mutable(self) -> None:
+        """Fails if a mutation is attempted outside a with-block"""
+        if self._is_locked:
+            raise RuntimeError(
+                "DAG is locked. Mutations must occur inside a 'with dag:' block"
+            )
