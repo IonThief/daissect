@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 from torch import nn
 
-from .structure import Topology
+from .structure import Node, OpType, Topology
 
 
 def require_mutable(func: Callable) -> Callable:
@@ -85,3 +85,18 @@ class DAG:
             matches = type_matches
 
         return matches
+
+    @require_mutable
+    def insert(
+        self,
+        target: str,
+        name: str,
+        module: nn.Module,
+        loc: str,
+    ) -> "DAG":
+        """Inserts a new module into the graph relative to a target"""
+        node = Node(name=name, type=OpType.CALL_MODULE, operator=name)
+        self._topology.insert(target, node, loc=loc)
+        self._module_pool[name] = module
+
+        return self
