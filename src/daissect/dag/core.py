@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 from torch import nn
 
+from .fx_types import NodePlaceholder, OpModule
 from .structure import Node, OpType, Topology
 
 
@@ -137,5 +138,34 @@ class DAG:
         original_module = self._module_pool[target]
         wrapped_module = wrapper_cls(original_module, **kwargs)
         self._module_pool[target] = wrapped_module
+
+        return self
+
+    @require_mutable
+    def branch(
+        self,
+        target: str,
+        name: str,
+        module: nn.Module,
+        merge_fn: Callable,
+    ) -> "DAG":
+        """Creates a parallel execution branch and merges it back into the main flow"""
+        branch_node = Node(name=name, type=OpType.CALL_MODULE, operator=name)
+        merge_name = f"{name}_merge"
+
+        merge_module = OpModule(
+            target=merge_fn,
+            args_schema=(NodePlaceholder(), NodePlaceholder()),
+        )
+        merge_node = Node(
+            name=merge_name,
+            type=OpType.CALL_FUNCTION,
+            operator=merge_name,
+        )
+
+        self._topology.branch(target, branch_node, merge_node)
+
+        self._module_pool[name] = module
+        self._module_pool[merge_name] = merge_module
 
         return self
