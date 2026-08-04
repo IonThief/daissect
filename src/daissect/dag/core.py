@@ -1,9 +1,10 @@
 import copy
 import re
+import types
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Type
 
-from torch import nn
+from torch import fx, nn
 
 from .fx_types import NodePlaceholder, OpModule
 from .structure import Node, OpType, Topology
@@ -25,21 +26,26 @@ def require_mutable(func: Callable) -> Callable:
 
 
 class DAG:
-    def __init__(self, is_locked: bool = True) -> None:
+    def __init__(
+        self,
+        original_module: Optional[nn.Module] = None,
+        is_locked: bool = True,
+    ) -> None:
+        self._original_module = original_module
         self._is_locked = is_locked
         self._topology = Topology()
         self._module_pool: Dict[str, nn.Module] = {}
 
     def clone(self) -> "DAG":
         """Returns a shallow copy: duplicates topology, shares weights"""
-        new_dag = DAG(is_locked=True)
+        new_dag = DAG(original_module=self._original_module, is_locked=True)
         new_dag._topology.nodes = copy.deepcopy(self._topology.nodes)
         new_dag._module_pool = self._module_pool
         return new_dag
 
     def deepcopy(self) -> "DAG":
         """Returns a deep copy: duplicates topology and tensor weights"""
-        new_dag = DAG(is_locked=True)
+        new_dag = DAG(original_module=self._original_module, is_locked=True)
         new_dag._topology.nodes = copy.deepcopy(self._topology.nodes)
         new_dag._module_pool = copy.deepcopy(self._module_pool)
         return new_dag
@@ -169,3 +175,78 @@ class DAG:
         self._module_pool[merge_name] = merge_module
 
         return self
+
+    def build(self) -> nn.Module:
+        """
+        Compiles the topology and injects the optimized FX graph
+        into an instance of the original module.
+
+        [ DAG Topology ]          [ Original nn.Module ]
+              │                             │
+              ▼                             ▼
+        (Topological Sort)             (Deepcopy)
+              │                             │
+              ▼                             ▼
+        [ Ordered Nodes ]         [ Original Instance ]
+              │                             │
+              ├─────────────────────────────┤ (add_module / Sync Weights)
+              ▼                             │
+        [ fx.Graph Construction ]           │
+              │                             │
+              ▼                             │
+        [ fx.GraphModule ] ─────────────────┤
+              │                             │
+              ▼                             │
+        [ Dynamic forward() ] ──────────────┤
+                                            │
+                                            ▼
+                                [ Transparent Executable ]
+        """
+        ordered_nodes = self._topology.sort()
+
+        if self._original_module is not None:
+            root_module = copy.deepcopy(self._original_module)
+        else:
+            root_module = nn.Module()
+
+        graph = fx.Graph()
+        fx_nodes: Dict[str, fx.Node] = {}
+
+        for name in ordered_nodes:
+            meta = self._topology.nodes[name]
+
+            if meta.type == OpType.PLACEHOLDER:
+                fx_nodes[name] = graph.placeholder(name)
+
+            elif meta.type == OpType.OUTPUT:
+                out_args = tuple(fx_nodes[arg] for arg in meta.predecessors)
+                graph.output(out_args[0] if len(out_args) == 1 else out_args)
+
+            else:
+                inputs = tuple(fx_nodes[arg] for arg in meta.predecessors)
+                mod = self._module_pool[name]
+
+                if isinstance(mod, OpModule):
+                    res_args, res_kwargs = mod.bind_inputs(inputs)
+                    if mod.is_method:
+                        fx_nodes[name] = graph.call_method(
+                            mod.target, tuple(res_args), res_kwargs
+                        )
+                    else:
+                        fx_nodes[name] = graph.call_function(
+                            mod.target, tuple(res_args), res_kwargs
+                        )
+                else:
+                    root_module.add_module(name, mod)
+                    fx_nodes[name] = graph.call_module(name, args=inputs)
+
+        compiled_graph_module = fx.GraphModule(root_module, graph)
+
+        root_module.forward = types.MethodType(
+            compiled_graph_module.__class__.forward,
+            root_module,
+        )
+
+        root_module.code = compiled_graph_module.code
+
+        return root_module
