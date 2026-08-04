@@ -334,3 +334,70 @@ class DAG:
             dfs(root, "", i == (len(roots) - 1))
 
         return "\n".join(lines)
+
+    def _draw_graphviz(self, filepath: Optional[str], format: str) -> Any:
+        try:
+            import graphviz
+        except ImportError:
+            raise ImportError(
+                "The 'graphviz' library is required for this backend. "
+                "Install it using: pip install graphviz"
+            )
+
+        dot = graphviz.Digraph(comment="DAG Topology")
+        dot.attr(
+            rankdir="LR",
+            splines="spline",
+            nodesep="0.6",
+            ranksep="0.8",
+            fontname="Helvetica",
+        )
+        dot.attr("edge", color="#94a3b8", penwidth="1.5", arrowsize="0.8")
+
+        for key in self._topology.sort():
+            data = self._get_node_label_data(key)
+
+            mod_label = (
+                f"<BR/><FONT POINT-SIZE='10' COLOR='#64748b'>{data['signature']}</FONT>"
+            )
+            tag = ""
+            stats_label = ""
+
+            fillcolor, color, penwidth = "#f8fafc", "#cbd5e1", "1.5"
+
+            if data["is_input"]:
+                tag = "<BR/><FONT POINT-SIZE='9' COLOR='#166534'>[Input]</FONT>"
+                fillcolor, color, penwidth = "#dcfce7", "#22c55e", "2"
+            elif data["is_output"]:
+                tag = "<BR/><FONT POINT-SIZE='9' COLOR='#1e3a8a'>[Output]</FONT>"
+                fillcolor, color, penwidth = "#dbeafe", "#3b82f6", "3"
+
+            if data["is_plugin"]:
+                res_str = str(data["plugin_result"])
+                arrow_str = f" &#8594; {res_str}" if res_str else ""
+                stats_label = f"<BR/><FONT POINT-SIZE='9' COLOR='#b91c1c'>[{data['plugin_name']}{arrow_str}]</FONT>"
+                mod_label = f"<BR/><FONT POINT-SIZE='10' COLOR='#64748b'>{data['signature']} (Wrapped)</FONT>"
+                if not data["is_input"] and not data["is_output"]:
+                    fillcolor, color, penwidth = "#fef08a", "#ca8a04", "2"
+
+            label = f"<{key}{mod_label}{tag}{stats_label}>"
+            dot.node(
+                key,
+                label=label,
+                shape="rect",
+                style="rounded,filled",
+                fillcolor=fillcolor,
+                color=color,
+                penwidth=penwidth,
+                fontname="Helvetica",
+            )
+
+        for key in self._topology.sort():
+            meta = self._topology.nodes[key]
+            for succ in meta.successors:
+                dot.edge(key, succ)
+
+        if filepath:
+            dot.render(filepath, format=format, cleanup=True)
+
+        return dot
