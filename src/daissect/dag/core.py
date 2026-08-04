@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 from torch import fx, nn
 
+from ..plugins.base import Plugin
 from .fx_types import NodePlaceholder, OpModule
 from .structure import Node, OpType, Topology
 
@@ -250,3 +251,86 @@ class DAG:
         root_module.code = compiled_graph_module.code
 
         return root_module
+
+    def _get_node_label_data(self, node_key: str) -> Dict[str, Any]:
+        meta = self._topology.nodes[node_key]
+        is_input = meta.type == OpType.INPUT
+        is_output = meta.type == OpType.OUTPUT
+
+        mod = self._module_pool.get(node_key)
+
+        is_plugin = isinstance(mod, Plugin)
+        base_mod = getattr(mod, "target_module", mod) if is_plugin else mod
+
+        if is_input:
+            signature = "Input"
+        elif is_output:
+            signature = "Output"
+        elif isinstance(base_mod, OpModule):
+            target_name = getattr(base_mod.target, "__name__", str(base_mod.target))
+
+            constants = []
+            for arg in base_mod.args_flat + base_mod.kwargs_flat:
+                if not isinstance(arg, NodePlaceholder):
+                    val_str = str(arg)
+                    if len(val_str) > 15:
+                        val_str = val_str[:12] + "..."
+                    constants.append(val_str)
+
+            if constants:
+                signature = f"{target_name}({', '.join(constants)})"
+            else:
+                signature = target_name
+
+        elif base_mod is not None:
+            signature = base_mod.__class__.__name__
+        else:
+            signature = "Unknown"
+
+        plugin_name = mod.__class__.__name__ if is_plugin else None
+        plugin_result = getattr(mod, "result", None) if is_plugin else None
+
+        return {
+            "is_input": is_input,
+            "is_output": is_output,
+            "is_plugin": is_plugin,
+            "signature": signature,
+            "plugin_name": plugin_name,
+            "plugin_result": plugin_result,
+        }
+
+    def _draw_ascii(self) -> str:
+        lines: List[str] = []
+        visited = set()
+
+        def dfs(node_name: str, prefix: str, is_last: bool) -> None:
+            connector = "└── " if is_last else "├── "
+            data = self._get_node_label_data(node_name)
+
+            label = f"{node_name} : {data['signature']}"
+            if data["is_plugin"]:
+                res_str = str(data["plugin_result"])
+                arrow_str = f" -> {res_str}" if res_str else ""
+                label += f"  [{data['plugin_name']}{arrow_str}]"
+
+            lines.append(f"{prefix}{connector}{label}")
+
+            if node_name in visited:
+                lines[-1] += " (shared reference)"
+                return
+            visited.add(node_name)
+
+            users = self._topology.nodes[node_name].successors
+            for i, user in enumerate(users):
+                extension = "    " if is_last else "│   "
+                dfs(user, prefix + extension, i == (len(users) - 1))
+
+        roots = [
+            name for name, meta in self._topology.nodes.items() if not meta.predecessors
+        ]
+
+        lines.append("[ DAG Topology ]")
+        for i, root in enumerate(roots):
+            dfs(root, "", i == (len(roots) - 1))
+
+        return "\n".join(lines)
