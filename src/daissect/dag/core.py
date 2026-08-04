@@ -252,6 +252,35 @@ class DAG:
 
         return root_module
 
+    def draw(
+        self,
+        filepath: Optional[str] = None,
+        format: str = "ascii",
+        theme: str = "light",
+    ) -> Any:
+        if format == "ascii":
+            out = self._draw_ascii()
+            if filepath:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(out)
+            else:
+                print(out)
+            return out
+        elif format == "mermaid":
+            out = self._draw_mermaid(theme=theme)
+            if filepath:
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(out)
+            return out
+        elif format in ("svg", "graphviz"):
+            return self._draw_graphviz(
+                filepath, format="svg" if format == "svg" else "png"
+            )
+        else:
+            raise ValueError(
+                f"Unsupported draw format '{format}'. Use 'ascii', 'mermaid', or 'svg'."
+            )
+
     def _get_node_label_data(self, node_key: str) -> Dict[str, Any]:
         meta = self._topology.nodes[node_key]
         is_input = meta.type == OpType.INPUT
