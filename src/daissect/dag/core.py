@@ -401,3 +401,64 @@ class DAG:
             dot.render(filepath, format=format, cleanup=True)
 
         return dot
+
+    def _draw_mermaid(self, theme: str = "light") -> str:
+        if theme == "dark":
+            text_color = "color:#f8fafc;"
+            styles = {
+                "input": f"fill:#064e3b,stroke:#10b981,stroke-width:2px,{text_color}",
+                "output": f"fill:#1e3a8a,stroke:#3b82f6,stroke-width:3px,{text_color}",
+                "plugin": f"fill:#713f12,stroke:#eab308,stroke-width:2px,{text_color}",
+                "default": f"fill:#0f172a,stroke:#475569,stroke-width:1.5px,{text_color}",
+            }
+            init_directive = "%%{init: {'theme': 'dark'}}%%"
+        else:
+            text_color = "color:#0f172a;"
+            styles = {
+                "input": f"fill:#dcfce7,stroke:#22c55e,stroke-width:2px,{text_color}",
+                "output": f"fill:#dbeafe,stroke:#3b82f6,stroke-width:3px,{text_color}",
+                "plugin": f"fill:#fef08a,stroke:#ca8a04,stroke-width:2px,{text_color}",
+                "default": f"fill:#f8fafc,stroke:#cbd5e1,stroke-width:1.5px,{text_color}",
+            }
+            init_directive = "%%{init: {'theme': 'default'}}%%"
+
+        lines = [
+            init_directive,
+            "graph LR",
+            f"classDef input {styles['input']}",
+            f"classDef output {styles['output']}",
+            f"classDef plugin {styles['plugin']}",
+            f"classDef default {styles['default']}",
+        ]
+
+        for key in self._topology.sort():
+            data = self._get_node_label_data(key)
+
+            label = f"<b>{key}</b><br><i>{data['signature']}</i>"
+            if data["is_plugin"]:
+                res_str = str(data["plugin_result"])
+                arrow_str = f" &rarr; {res_str}" if res_str else ""
+                plugin_text_color = "#fca5a5" if theme == "dark" else "#b91c1c"
+                label += f"<br><font color='{plugin_text_color}'>[{data['plugin_name']}{arrow_str}]</font>"
+
+            shape_start, shape_end = (
+                ("([", "])") if data["is_input"] or data["is_output"] else ("[", "]")
+            )
+            lines.append(f'    {key}{shape_start}"{label}"{shape_end}')
+
+            if data["is_input"]:
+                lines.append(f"    class {key} input")
+            elif data["is_output"]:
+                lines.append(f"    class {key} output")
+            elif data["is_plugin"]:
+                lines.append(f"    class {key} plugin")
+            else:
+                lines.append(f"    class {key} default")
+
+        lines.append("")
+        for key in self._topology.sort():
+            meta = self._topology.nodes[key]
+            for succ in meta.successors:
+                lines.append(f"    {key} --> {succ}")
+
+        return "\n".join(lines)
