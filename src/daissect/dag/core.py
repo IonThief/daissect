@@ -215,7 +215,7 @@ class DAG:
         for name in ordered_nodes:
             meta = self._topology.nodes[name]
 
-            if meta.type == OpType.PLACEHOLDER:
+            if meta.type == OpType.INPUT:
                 fx_nodes[name] = graph.placeholder(name)
 
             elif meta.type == OpType.OUTPUT:

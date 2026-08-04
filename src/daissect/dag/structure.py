@@ -15,7 +15,7 @@
 
 1. Input "x"
     +----------------------------------------------------------------------+
-    | Node(name="x", type=OpType.PLACEHOLDER, operator="x")                |
+    | Node(name="x", type=OpType.INPUT, operator="x")                |
     | predecessors = ()                                                    |
     | successors   = ["linear"]                                            |
     +----------------------------------------------------------------------+
@@ -55,7 +55,7 @@ from typing import Any, Callable, Dict, List, Tuple, Union
 
 
 class OpType(Enum):
-    PLACEHOLDER = "placeholder"
+    INPUT = "placeholder"
     GET_ATTR = "get_attr"
     CALL_MODULE = "call_module"
     CALL_FUNCTION = "call_function"
