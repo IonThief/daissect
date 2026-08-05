@@ -119,15 +119,49 @@ class DAG:
         return self
 
     @require_mutable
-    def replace(self, target: str, module: nn.Module) -> "DAG":
+    def rename(self, target: str, new_name: str) -> "DAG":
+        """Rename a node's topological key and updates all referencing edges."""
+        if target not in self._topology.nodes:
+            raise KeyError(f"Node '{target}' not found in topology.")
+        if new_name in self._topology.nodes:
+            raise ValueError(f"Node name '{new_name}' already exists.")
+
+        if target in self._module_pool:
+            self._module_pool[new_name] = self._module_pool.pop(target)
+
+        meta = self._topology.nodes.pop(target)
+        self._topology.nodes[new_name] = meta
+
+        for pred in meta.predecessors:
+            pred_meta = self._topology.nodes[pred]
+            pred_meta.successors = [
+                new_name if n == target else n for n in pred_meta.successors
+            ]
+
+        for succ in meta.successors:
+            succ_meta = self._topology.nodes[succ]
+            succ_meta.predecessors = [
+                new_name if n == target else n for n in succ_meta.predecessors
+            ]
+
+        return self
+
+    @require_mutable
+    def replace(self, target: str, module: Any, name: Optional[str] = None) -> "DAG":
         """Replaces an existing module in the graph"""
         if target not in self._topology.nodes:
-            raise ValueError(f"Target node '{target}' not found in topology.")
+            raise KeyError(f"Target node '{target}' not found in topology.")
 
         self._module_pool[target] = module
+
         node = self._topology.nodes[target]
         node.type = OpType.CALL_MODULE
-        node.operator = target
+
+        final_name = name if name is not None else target
+        node.operator = final_name
+
+        if name is not None and name != target:
+            self.rename(target, name)
 
         return self
 
