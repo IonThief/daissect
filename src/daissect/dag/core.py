@@ -2,13 +2,14 @@ import copy
 import re
 import types
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 from torch import fx, nn
 
 from ..plugins.base import BasePlugin
 from .fx_types import NodePlaceholder, OpModule
 from .structure import Node, OpType, Topology
+from .tracing import SymbolicTracer
 
 
 def require_mutable(func: Callable) -> Callable:
@@ -24,6 +25,27 @@ def require_mutable(func: Callable) -> Callable:
         return func(self, *args, **kwargs)
 
     return wrapper
+
+
+def _parse_fx_args(args: Any, kwargs: Any) -> Tuple[Any, Any, List[str]]:
+    """Helper to extract dependencies and replace fx.Nodes with Placeholders."""
+    dependencies: List[str] = []
+
+    def map_fn(n: Any) -> Any:
+        if isinstance(n, fx.Node):
+            dependencies.append(n.name)
+            return NodePlaceholder()
+        if isinstance(n, tuple):
+            return tuple(map_fn(x) for x in n)
+        if isinstance(n, list):
+            return [map_fn(x) for x in n]
+        if isinstance(n, dict):
+            return {k: map_fn(v) for k, v in n.items()}
+        return n
+
+    args_schema = map_fn(args)
+    kwargs_schema = map_fn(kwargs)
+    return args_schema, kwargs_schema, dependencies
 
 
 class DAG:
@@ -64,6 +86,18 @@ class DAG:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Automatically locks the graph upon exiting the context block"""
         self.lock()
+
+    @classmethod
+    def from_source(
+        cls,
+        source: Any,
+        concrete_args: Optional[Dict[str, Any]] = None,
+    ) -> "DAG":
+        """To construct a DAG from various formats"""
+        if isinstance(source, nn.Module):
+            return cls._from_nn_module(source, concrete_args)
+
+        raise TypeError(f"Unsupported source type: {type(source)}")
 
     def find(
         self,
@@ -525,3 +559,51 @@ class DAG:
                 lines.append(f"    {key} --> {succ}")
 
         return "\n".join(lines)
+
+    @classmethod
+    def _from_nn_module(
+        cls,
+        module: nn.Module,
+        concrete_args: Optional[Dict[str, Any]],
+    ) -> "DAG":
+        fx_graph = SymbolicTracer().trace(module, concrete_args=concrete_args)
+        module_dict = dict(module.named_modules())
+
+        dag = cls(is_locked=False)
+
+        for node in fx_graph.nodes:
+            args_schema, kwargs_schema, deps = _parse_fx_args(node.args, node.kwargs)
+            op_type = OpType(node.op)
+
+            meta = Node(
+                name=node.name,
+                type=op_type,
+                operator=node.target,
+                predecessors=tuple(deps),
+                kwargs={},
+            )
+
+            if op_type == OpType.CALL_MODULE:
+                target_mod = module_dict.get(str(node.target))
+                if target_mod is None:
+                    raise RuntimeError(f"Module {node.target} missing from ModuleDict.")
+                dag._module_pool[node.name] = target_mod
+
+            elif op_type in (OpType.CALL_FUNCTION, OpType.CALL_METHOD):
+                is_method = op_type == OpType.CALL_METHOD
+                dag._module_pool[node.name] = OpModule(
+                    target=node.target,
+                    args_schema=args_schema,
+                    kwargs_schema=kwargs_schema,
+                    is_method=is_method,
+                )
+
+            dag._topology.nodes[node.name] = meta
+
+        for name, meta in dag._topology.nodes.items():
+            for arg_name in meta.predecessors:
+                if arg_name in dag._topology.nodes:
+                    dag._topology.nodes[arg_name].successors.append(name)
+
+        dag.lock()
+        return dag
