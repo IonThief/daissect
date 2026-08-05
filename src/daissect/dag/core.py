@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 from torch import fx, nn
 
-from ..plugins.base import Plugin
+from ..plugins.base import BasePlugin
 from .fx_types import NodePlaceholder, OpModule
 from .structure import Node, OpType, Topology
 
@@ -322,7 +322,7 @@ class DAG:
 
         mod = self._module_pool.get(node_key)
 
-        is_plugin = isinstance(mod, Plugin)
+        is_plugin = isinstance(mod, BasePlugin)
         base_mod = getattr(mod, "target_module", mod) if is_plugin else mod
 
         if is_input:
