@@ -42,7 +42,18 @@ class BasePlugin(nn.Module):
                 f"got {type(target_module)}"
             )
 
-        self.target_module = target_module
+        if isinstance(target_module, BasePlugin):
+            self.target_module = target_module.target_module
+            existing_plugins = (
+                list(target_module.plugins)
+                if hasattr(target_module, "plugins")
+                else [target_module]
+            )
+            self.plugins = nn.ModuleList(existing_plugins + [target_module])
+        else:
+            self.target_module = target_module
+            self.plugins = nn.ModuleList()
+
         self._result = BaseResult()
 
     @property
@@ -67,16 +78,22 @@ class BasePlugin(nn.Module):
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
         """
-        Executes pre_forward -> target_module -> post_forward.
-        Attaches backward_hook if output requires_grad.
+        Executes pre_forward sequence -> target_module -> post_forward sequence.
+        Attaches backward_hooks for all chained plugins.
         """
-        mod_args, mod_kwargs = self.pre_forward(*args, **kwargs)
+        for p in self.plugins:
+            args, kwargs = p.pre_forward(*args, **kwargs)
+        args, kwargs = self.pre_forward(*args, **kwargs)
 
-        output = self.target_module(*mod_args, **mod_kwargs)
+        output = self.target_module(*args, **kwargs)
 
         output = self.post_forward(output)
+        for p in reversed(self.plugins):
+            output = p.post_forward(output)
 
         self._attach_backward_hook(output)
+        for p in self.plugins:
+            p._attach_backward_hook(output)
 
         return output
 
