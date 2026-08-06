@@ -3,6 +3,15 @@ from typing import Any, Dict, Optional, Set, Tuple, Type
 from torch import fx, nn
 
 
+def as_leaf_node(cls: Type[nn.Module]) -> Type[nn.Module]:
+    """
+    Class decorator to mark an nn.Module as an opaque boundary.
+    Prevents daissect from tracing through its internal operations.
+    """
+    cls._daissect_as_leaf_node = True
+    return cls
+
+
 class ControlFlowDetected(Exception):
     """
     Exception raised when data-dependent control flow prevents tracing inside a submodule.
@@ -54,6 +63,8 @@ class SymbolicTracer(fx.Tracer):
                 ) from e
 
     def is_leaf_module(self, m: nn.Module, module_qualname: str) -> bool:
+        if getattr(type(m), "_daissect_as_leaf_node", False):
+            return True
         if type(m) in self.blacklist_leaves:
             return True
         if not hasattr(m, "__module__"):
